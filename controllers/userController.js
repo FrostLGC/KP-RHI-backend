@@ -7,7 +7,9 @@ const Task = require("../models/Task");
 const getUsers = async (req, res) => {
   try {
     // Return all users except superadmin and admin
-    const users = await User.find({ role: { $nin: ["superadmin", "admin"] } }).select("-password");
+    const users = await User.find({
+      role: { $nin: ["superadmin", "admin"] },
+    }).select("-password");
 
     // add task count to each user
     const usersWithTaskCount = await Promise.all(

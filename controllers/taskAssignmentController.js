@@ -93,6 +93,8 @@ const respondToAssignmentRequest = async (req, res) => {
 };
 
 // New controller method to check high priority tasks for users
+const User = require("../models/User");
+
 const checkHighPriorityTasks = async (req, res) => {
   try {
     const { userIds } = req.body;
@@ -111,8 +113,17 @@ const checkHighPriorityTasks = async (req, res) => {
       });
 
       if (count >= 2) {
-        // You may want to fetch user details here if needed
-        usersWithHighPriorityTasks.push({ _id: userId });
+        // Fetch user details directly
+        const user = await User.findById(userId).select("name profileImageUrl");
+        if (user) {
+          usersWithHighPriorityTasks.push({
+            _id: user._id,
+            name: user.name,
+            profileImageUrl: user.profileImageUrl || null,
+          });
+        } else {
+          usersWithHighPriorityTasks.push({ _id: userId });
+        }
       }
     }
 

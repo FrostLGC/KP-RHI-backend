@@ -103,9 +103,6 @@ const getTaskById = async (req, res) => {
   }
 };
 
-// @desc    Create a new task(admin only)
-// @route   POST /api/tasks
-// @access  Private(admin)
 const createTask = async (req, res) => {
   try {
     const {
@@ -118,55 +115,64 @@ const createTask = async (req, res) => {
       todoChecklist,
       location,
     } = req.body;
+
     if (!Array.isArray(assignedTo)) {
       return res
         .status(400)
         .json({ message: "assignedTo must be an array of user IDs" });
     }
 
-    // Set assignedBy to current user
     const assignedBy = req.user._id;
 
-    // Check if any assigned user already has a task assigned by another admin
-    const TaskAssignmentRequest = require("./taskAssignmentController").TaskAssignmentRequest;
-    const existingAssignments = await Task.findOne({
-      assignedTo: { $in: assignedTo },
-      assignedBy: { $ne: assignedBy },
-    });
+    // Separate users into those with 2 or more high priority tasks and others
+    const usersWithHighPriorityTasks = [];
+    const usersWithoutHighPriorityTasks = [];
 
-    if (existingAssignments) {
-      // Create assignment requests for users assigned by other admins
-      const taskAssignmentController = require("./taskAssignmentController");
-      for (const userId of assignedTo) {
-        const userHasTask = await Task.findOne({
-          assignedTo: userId,
-          assignedBy: { $ne: assignedBy },
-        });
-        if (userHasTask) {
-          await taskAssignmentController.createTaskAssignmentRequest({
-            body: { taskId: existingAssignments._id, assignedToUserId: userId },
-            user: req.user,
-          }, {
-            status: () => ({ json: () => {} }),
-          });
-        }
+    for (const userId of assignedTo) {
+      const count = await Task.countDocuments({
+        assignedTo: userId,
+        priority: "High",
+        status: { $ne: "Completed" },
+      });
+      if (count >= 2) {
+        usersWithHighPriorityTasks.push(userId);
+      } else {
+        usersWithoutHighPriorityTasks.push(userId);
       }
-      return res.status(202).json({ message: "Task assignment requests created for approval" });
     }
 
+    // Create the task assigned directly to users without high priority overload
     const task = await Task.create({
       title,
       description,
       priority,
       dueDate,
-      assignedTo,
+      assignedTo: usersWithoutHighPriorityTasks,
       assignedBy,
       location,
       createdBy: req.user._id,
       todoChecklist,
       attachments,
     });
-    res.status(201).json({ message: "Task created successfully", task });
+
+    // For users with high priority tasks, create assignment requests
+    if (usersWithHighPriorityTasks.length > 0) {
+      const taskAssignmentController = require("./taskAssignmentController");
+      for (const userId of usersWithHighPriorityTasks) {
+        await taskAssignmentController.createTaskAssignmentRequest({
+          body: { taskId: task._id, assignedToUserId: userId },
+          user: req.user,
+        }, {
+          status: () => ({ json: () => {} }),
+        });
+      }
+    }
+
+    res.status(201).json({
+      message: "Task created successfully",
+      task,
+      assignmentRequestsCreated: usersWithHighPriorityTasks.length > 0,
+    });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
