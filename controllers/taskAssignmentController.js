@@ -85,17 +85,17 @@ const respondToAssignmentRequest = async (req, res) => {
       request.rejectionReason = rejectionReason || null;
       await request.save();
 
-      // Check if all assignment requests for this task are rejected
-      const allRequests = await TaskAssignmentRequest.find({ taskId: request.taskId });
-      const allRejected = allRequests.length > 0 && allRequests.every(r => r.status === "Rejected");
+      // Removed updating task status to "Rejected" to allow other users to continue working
+      // const allRequests = await TaskAssignmentRequest.find({ taskId: request.taskId });
+      // const allRejected = allRequests.length > 0 && allRequests.every(r => r.status === "Rejected");
 
-      if (allRejected) {
-        const task = await Task.findById(request.taskId);
-        if (task) {
-          task.status = "Rejected";
-          await task.save();
-        }
-      }
+      // if (allRejected) {
+      //   const task = await Task.findById(request.taskId);
+      //   if (task) {
+      //     task.status = "Rejected";
+      //     await task.save();
+      //   }
+      // }
 
       res.json({ message: "Assignment request rejected", request });
     } else {
