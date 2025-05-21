@@ -14,12 +14,14 @@ const {
 } = require("../controllers/taskControllers");
 
 const router = express.Router();
+const { getUsersWithTasksGrouped } = require("../controllers/userTasksController");
 
 // project routes
 router.get("/dashboard-data", protect, getDashboardData);
 router.get("/user-dashboard-data", protect, getUserDashboardData);
 router.get("/", protect, getTasks);
 router.get("/:id", protect, getTaskById);
+router.get("/users/tasks-grouped", protect, getUsersWithTasksGrouped);
 router.post(
   "/",
   protect,

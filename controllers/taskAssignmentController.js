@@ -85,17 +85,47 @@ const respondToAssignmentRequest = async (req, res) => {
       request.rejectionReason = rejectionReason || null;
       await request.save();
 
-      // Removed updating task status to "Rejected" to allow other users to continue working
-      // const allRequests = await TaskAssignmentRequest.find({ taskId: request.taskId });
-      // const allRejected = allRequests.length > 0 && allRequests.every(r => r.status === "Rejected");
+      // Check if all assignment requests for this task are rejected
+      const allRequests = await TaskAssignmentRequest.find({ taskId: request.taskId });
+      const allRejected = allRequests.length > 0 && allRequests.every(r => r.status === "Rejected");
 
-      // if (allRejected) {
-      //   const task = await Task.findById(request.taskId);
-      //   if (task) {
-      //     task.status = "Rejected";
-      //     await task.save();
-      //   }
-      // }
+      // Update task status accordingly
+      const task = await Task.findById(request.taskId);
+      if (task) {
+        // Get all assigned user IDs from the task
+        const assignedUserIds = task.assignedTo.map(id => id.toString());
+
+        // Get user IDs from assignment requests
+        const requestUserIds = allRequests.map(r => r.assignedToUserId.toString());
+
+        // Users assigned directly (without assignment requests)
+        const directAssignedUserIds = assignedUserIds.filter(id => !requestUserIds.includes(id));
+
+        // Consider direct assigned users as approved
+        const directAssignedApprovedCount = directAssignedUserIds.length;
+
+        // Count approved and rejected requests
+        const approvedRequestsCount = allRequests.filter(r => r.status === "Approved").length;
+        const rejectedRequestsCount = allRequests.filter(r => r.status === "Rejected").length;
+        const pendingRequestsCount = allRequests.filter(r => r.status === "Pending").length;
+
+        // Total users count
+        const totalUsersCount = assignedUserIds.length;
+
+        // Determine task status
+        if (rejectedRequestsCount === allRequests.length && directAssignedApprovedCount === 0) {
+          // All requests rejected and no direct assigned users
+          task.status = "Rejected";
+        } else if (pendingRequestsCount > 0) {
+          task.status = "Pending Approval";
+        } else if (approvedRequestsCount + directAssignedApprovedCount > 0) {
+          task.status = "Pending";
+        } else {
+          task.status = "Pending Approval";
+        }
+
+        await task.save();
+      }
 
       res.json({ message: "Assignment request rejected", request });
     } else {

@@ -14,30 +14,46 @@ const getTasks = async (req, res) => {
       filter.status = status;
     }
 
+    // Determine sort options
+    // let sortOptions = {};
+    // if (sortBy) {
+    //   const order = sortOrder === "desc" ? -1 : 1;
+    //   if (["createdAt", "dueDate", "date"].includes(sortBy)) {
+    //     sortOptions[sortBy] = order;
+    //   }
+    // } else {
+    //   // Default sort by createdAt descending
+    //   sortOptions = { createdAt: -1 };
+    // }
+
     let tasks;
 
     if (req.user.role === "admin") {
-      tasks = await Task.find(filter).populate([
-        {
-          path: "assignedTo",
-          select: "name email profileImageUrl",
-        },
-        {
-          path: "assignedBy",
-          select: "name email profileImageUrl",
-        },
-      ]);
+      tasks = await Task.find(filter)
+        // .sort(sortOptions)
+        .populate([
+          {
+            path: "assignedTo",
+            select: "name email profileImageUrl",
+          },
+          {
+            path: "assignedBy",
+            select: "name email profileImageUrl",
+          },
+        ]);
     } else {
-      tasks = await Task.find({ ...filter, assignedTo: req.user._id }).populate([
-        {
-          path: "assignedTo",
-          select: "name email profileImageUrl",
-        },
-        {
-          path: "assignedBy",
-          select: "name email profileImageUrl",
-        },
-      ]);
+      tasks = await Task.find({ ...filter, assignedTo: req.user._id })
+        // .sort(sortOptions)
+        .populate([
+          {
+            path: "assignedTo",
+            select: "name email profileImageUrl",
+          },
+          {
+            path: "assignedBy",
+            select: "name email profileImageUrl",
+          },
+        ]);
     }
 
     // For each task, check assignment requests and update assignedTo and status accordingly
@@ -60,7 +76,12 @@ const getTasks = async (req, res) => {
         // Include users with approved, pending, or rejected requests or those originally assigned without requests
         const assignedToFiltered = task.assignedTo.filter((user) => {
           const req = assignmentMap[user._id.toString()];
-          return !req || req.status === "Approved" || req.status === "Pending" || req.status === "Rejected";
+          return (
+            !req ||
+            req.status === "Approved" ||
+            req.status === "Pending" ||
+            req.status === "Rejected"
+          );
         });
 
         // Add rejection, pending info to assignedTo users
@@ -75,20 +96,30 @@ const getTasks = async (req, res) => {
         });
 
         // Find users with pending or rejected requests not in assignedTo
-        const assignedToIds = task.assignedTo.map((user) => user._id.toString());
+        const assignedToIds = task.assignedTo.map((user) =>
+          user._id.toString()
+        );
         const pendingOrRejectedUserIds = Object.entries(assignmentMap)
-          .filter(([userId, req]) => (req.status === "Pending" || req.status === "Rejected") && !assignedToIds.includes(userId))
+          .filter(
+            ([userId, req]) =>
+              (req.status === "Pending" || req.status === "Rejected") &&
+              !assignedToIds.includes(userId)
+          )
           .map(([userId]) => userId);
 
         if (pendingOrRejectedUserIds.length > 0) {
-          const extraUsers = await User.find({ _id: { $in: pendingOrRejectedUserIds } }).select("name email profileImageUrl");
+          const extraUsers = await User.find({
+            _id: { $in: pendingOrRejectedUserIds },
+          }).select("name email profileImageUrl");
           const extraUsersWithInfo = extraUsers.map((user) => ({
             ...user._doc,
             rejected: assignmentMap[user._id.toString()]?.status === "Rejected",
             pending: assignmentMap[user._id.toString()]?.status === "Pending",
-            rejectionReason: assignmentMap[user._id.toString()]?.rejectionReason || null,
+            rejectionReason:
+              assignmentMap[user._id.toString()]?.rejectionReason || null,
           }));
-          assignedToWithRejection = assignedToWithRejection.concat(extraUsersWithInfo);
+          assignedToWithRejection =
+            assignedToWithRejection.concat(extraUsersWithInfo);
         }
 
         // Determine if any assigned user has pending request
@@ -97,27 +128,73 @@ const getTasks = async (req, res) => {
         );
 
         // Determine if all assigned users rejected
+        console.log("Task ID:", task._id.toString());
+        console.log("task._doc.assignedTo:", task._doc.assignedTo);
+        console.log("assignmentMap:", assignmentMap);
+
+        const originalAssignedToIds = task._doc.assignedTo.map((id) =>
+          id.toString()
+        );
         const allRejected =
-          task.assignedTo.length > 0 &&
-          task.assignedTo.every((user) => {
-            const req = assignmentMap[user._id.toString()];
+          originalAssignedToIds.length > 0 &&
+          originalAssignedToIds.every((userId) => {
+            const req = assignmentMap[userId];
             return req?.status === "Rejected";
           });
+        console.log("allRejected:", allRejected);
+
+        // Special case: if only one assigned user and rejected, mark rejected
+        console.log("assignmentMap keys:", Object.keys(assignmentMap));
+        if (task.assignedTo && task.assignedTo.length > 0) {
+          console.log(
+            "task.assignedTo[0]._id:",
+            task.assignedTo[0]._id.toString()
+          );
+          console.log(
+            "assignmentMap entry for single user:",
+            assignmentMap[task.assignedTo[0]._id.toString()]
+          );
+        }
+
+        const singleUserRejected =
+          task.assignedTo &&
+          task.assignedTo.length === 1 &&
+          assignmentMap[task.assignedTo[0]._id.toString()]?.status ===
+            "Rejected";
+
+        // Determine if any assigned user approved
+        const hasApproved = Object.values(assignmentMap).some(
+          (req) => req.status === "Approved"
+        );
+
+        // Determine if todo checklist started (any item completed)
+        const todoStarted = task.todoChecklist.some((item) => item.completed);
 
         // Set task status accordingly
+        console.log("task.assignedTo:", task.assignedTo);
         let status = task.status;
-        if (allRejected) {
+        if (allRejected || singleUserRejected) {
           status = "Rejected";
         } else if (hasPending) {
           status = "Pending Approval";
+        } else if (hasApproved && !todoStarted) {
+          status = "Pending";
+        } else if (hasApproved && todoStarted) {
+          status = "In Progress";
         }
+        console.log("Computed task status:", status);
 
         const completedCount = task.todoChecklist.filter(
           (item) => item.completed
         ).length;
 
+        // Update task.status to the computed status
+        task.status = status;
+
+        const { status: originalStatus, ...taskWithoutStatus } = task._doc;
+
         return {
-          ...task._doc,
+          ...taskWithoutStatus,
           assignedTo: assignedToWithRejection,
           completedTodoCount: completedCount,
           status,
@@ -147,7 +224,10 @@ const getTasks = async (req, res) => {
       ...(req.user.role !== "admin" && { assignedTo: req.user._id }),
     });
 
-    console.log("Tasks with assignment info to send:", JSON.stringify(tasksWithAssignmentInfo, null, 2));
+    console.log(
+      "Tasks with assignment info to send:",
+      JSON.stringify(tasksWithAssignmentInfo, null, 2)
+    );
 
     res.json({
       tasks: tasksWithAssignmentInfo,
