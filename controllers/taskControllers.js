@@ -4,7 +4,9 @@ const User = require("../models/User");
 // @desc    Get all tasks
 // @route   GET /api/tasks
 // @access  Private
-const TaskAssignmentRequest = require("./taskAssignmentController").TaskAssignmentRequest || require("../models/TaskAssignmentRequest");
+const TaskAssignmentRequest =
+  require("./taskAssignmentController").TaskAssignmentRequest ||
+  require("../models/TaskAssignmentRequest");
 
 const getTasks = async (req, res) => {
   try {
@@ -127,10 +129,6 @@ const getTasks = async (req, res) => {
         );
 
         // Determine if all assigned users rejected
-        console.log("Task ID:", task._id.toString());
-        console.log("task._doc.assignedTo:", task._doc.assignedTo);
-        console.log("assignmentMap:", assignmentMap);
-
         const originalAssignedToIds = task._doc.assignedTo.map((id) =>
           id.toString()
         );
@@ -140,21 +138,8 @@ const getTasks = async (req, res) => {
             const req = assignmentMap[userId];
             return req?.status === "Rejected";
           });
-        console.log("allRejected:", allRejected);
 
         // Special case: if only one assigned user and rejected, mark rejected
-        console.log("assignmentMap keys:", Object.keys(assignmentMap));
-        if (task.assignedTo && task.assignedTo.length > 0) {
-          console.log(
-            "task.assignedTo[0]._id:",
-            task.assignedTo[0]._id.toString()
-          );
-          console.log(
-            "assignmentMap entry for single user:",
-            assignmentMap[task.assignedTo[0]._id.toString()]
-          );
-        }
-
         const singleUserRejected =
           task.assignedTo &&
           task.assignedTo.length === 1 &&
@@ -169,19 +154,24 @@ const getTasks = async (req, res) => {
         // Determine if todo checklist started (any item completed)
         const todoStarted = task.todoChecklist.some((item) => item.completed);
 
+        // Determine if all todo checklist items are completed
+        const allTodoCompleted =
+          task.todoChecklist.length > 0 &&
+          task.todoChecklist.every((item) => item.completed);
+
         // Set task status accordingly
-        console.log("task.assignedTo:", task.assignedTo);
         let status = task.status;
         if (allRejected || singleUserRejected) {
           status = "Rejected";
         } else if (hasPending) {
           status = "Pending Approval";
-        } else if (hasApproved && !todoStarted) {
-          status = "Pending";
+        } else if (hasApproved && allTodoCompleted) {
+          status = "Completed";
         } else if (hasApproved && todoStarted) {
           status = "In Progress";
+        } else if (hasApproved && !todoStarted) {
+          status = "Pending";
         }
-        console.log("Computed task status:", status);
 
         const completedCount = task.todoChecklist.filter(
           (item) => item.completed
@@ -223,11 +213,6 @@ const getTasks = async (req, res) => {
       ...(req.user.role !== "admin" && { assignedTo: req.user._id }),
     });
 
-    console.log(
-      "Tasks with assignment info to send:",
-      JSON.stringify(tasksWithAssignmentInfo, null, 2)
-    );
-
     res.json({
       tasks: tasksWithAssignmentInfo,
       statusSummary: {
@@ -242,9 +227,6 @@ const getTasks = async (req, res) => {
   }
 };
 
-// @desc    Get task by ID
-// @route   GET /api/tasks/:id
-// @access  Private
 const getTaskById = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id).populate(
@@ -317,12 +299,15 @@ const createTask = async (req, res) => {
     if (usersWithHighPriorityTasks.length > 0) {
       const taskAssignmentController = require("./taskAssignmentController");
       for (const userId of usersWithHighPriorityTasks) {
-        await taskAssignmentController.createTaskAssignmentRequest({
-          body: { taskId: task._id, assignedToUserId: userId },
-          user: req.user,
-        }, {
-          status: () => ({ json: () => {} }),
-        });
+        await taskAssignmentController.createTaskAssignmentRequest(
+          {
+            body: { taskId: task._id, assignedToUserId: userId },
+            user: req.user,
+          },
+          {
+            status: () => ({ json: () => {} }),
+          }
+        );
       }
     }
 
@@ -336,9 +321,6 @@ const createTask = async (req, res) => {
   }
 };
 
-// @desc    Update a task
-// @route   PUT /api/tasks/:id
-// @access  Private
 const updateTask = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
@@ -357,20 +339,20 @@ const updateTask = async (req, res) => {
       // Check if all assigned users exist
       const usersExist = await User.find({ _id: { $in: req.body.assignedTo } });
       if (usersExist.length !== req.body.assignedTo.length) {
-      // Filter out invalid userIds (null, undefined, non-string/object)
-      const validUserIds = req.body.assignedTo.filter(
-        (id) =>
-          id !== null &&
-          id !== undefined &&
-          (typeof id === "string" || typeof id === "object")
-      );
+        // Filter out invalid userIds (null, undefined, non-string/object)
+        const validUserIds = req.body.assignedTo.filter(
+          (id) =>
+            id !== null &&
+            id !== undefined &&
+            (typeof id === "string" || typeof id === "object")
+        );
 
-      const missingUsers = validUserIds.filter(
-        (userId) =>
-          !usersExist.some(
-            (user) => user._id.toString() === userId.toString()
-          )
-      );
+        const missingUsers = validUserIds.filter(
+          (userId) =>
+            !usersExist.some(
+              (user) => user._id.toString() === userId.toString()
+            )
+        );
         return res.status(404).json({
           message: "One or more assigned users not found",
           missingUsers,
@@ -388,12 +370,12 @@ const updateTask = async (req, res) => {
     task.assignedTo = req.body.assignedTo || task.assignedTo;
 
     // Update location if provided and valid
-    if (req.body.location && typeof req.body.location === 'object') {
+    if (req.body.location && typeof req.body.location === "object") {
       const { lat, lng, address } = req.body.location;
       task.location = {
-        lat: typeof lat === 'number' ? lat : task.location.lat,
-        lng: typeof lng === 'number' ? lng : task.location.lng,
-        address: typeof address === 'string' ? address : task.location.address,
+        lat: typeof lat === "number" ? lat : task.location.lat,
+        lng: typeof lng === "number" ? lng : task.location.lng,
+        address: typeof address === "string" ? address : task.location.address,
       };
     }
 
@@ -404,9 +386,6 @@ const updateTask = async (req, res) => {
   }
 };
 
-// @desc    Delete a task(admin only)
-// @route   DELETE /api/tasks/:id
-// @access  Private(admin)
 const deleteTask = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
@@ -422,9 +401,6 @@ const deleteTask = async (req, res) => {
   }
 };
 
-// @desc    Update task status
-// @route   PUT /api/tasks/:id/status
-// @access  Private
 const updateTaskStatus = async (req, res) => {
   try {
     const task = await Task.findById(req.params.id);
@@ -456,9 +432,6 @@ const updateTaskStatus = async (req, res) => {
   }
 };
 
-// @desc    Update task checklist
-// @route   PUT /api/tasks/:id/todo
-// @access  Private
 const updateTaskChecklist = async (req, res) => {
   try {
     const { todoChecklist } = req.body;
@@ -475,7 +448,9 @@ const updateTaskChecklist = async (req, res) => {
 
     // Prevent updating checklist if task is rejected
     if (task.status === "Rejected") {
-      return res.status(403).json({ message: "Cannot update checklist of a rejected task" });
+      return res
+        .status(403)
+        .json({ message: "Cannot update checklist of a rejected task" });
     }
 
     task.todoChecklist = todoChecklist;
@@ -512,9 +487,6 @@ const updateTaskChecklist = async (req, res) => {
   }
 };
 
-// @desc    Get dashboard data(admin only)
-// @route   GET /api/tasks/dashboard-data
-// @access  Private
 const getDashboardData = async (req, res) => {
   try {
     // fetch statistics
@@ -584,9 +556,6 @@ const getDashboardData = async (req, res) => {
   }
 };
 
-// @desc    Get user dashboard data(specific
-// @route   GET /api/tasks/user-dashboard-data
-// @access  Private
 const getUserDashboardData = async (req, res) => {
   try {
     const userId = req.user._id;
