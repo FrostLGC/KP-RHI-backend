@@ -8,51 +8,50 @@ const TaskAssignmentRequest = require("./taskAssignmentController").TaskAssignme
 
 const getTasks = async (req, res) => {
   try {
-    const { status } = req.query;
+    const {
+      status,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      assignedTo,
+    } = req.query;
     let filter = {};
+
     if (status) {
       filter.status = status;
     }
 
-    // Determine sort options
-    // let sortOptions = {};
-    // if (sortBy) {
-    //   const order = sortOrder === "desc" ? -1 : 1;
-    //   if (["createdAt", "dueDate", "date"].includes(sortBy)) {
-    //     sortOptions[sortBy] = order;
-    //   }
-    // } else {
-    //   // Default sort by createdAt descending
-    //   sortOptions = { createdAt: -1 };
-    // }
+    if (assignedTo) {
+      filter.assignedTo = assignedTo;
+    }
+
+    // Validate and set sort options
+    const validSortFields = ["createdAt", "dueDate"];
+    const validSortOrders = ["asc", "desc"];
+
+    const sortField = validSortFields.includes(sortBy) ? sortBy : "createdAt";
+    const sortDirection = validSortOrders.includes(sortOrder)
+      ? sortOrder === "asc"
+        ? 1
+        : -1
+      : -1;
+
+    const sortOptions = { [sortField]: sortDirection };
 
     let tasks;
 
     if (req.user.role === "admin") {
       tasks = await Task.find(filter)
-        // .sort(sortOptions)
+        .sort(sortOptions)
         .populate([
-          {
-            path: "assignedTo",
-            select: "name email profileImageUrl",
-          },
-          {
-            path: "assignedBy",
-            select: "name email profileImageUrl",
-          },
+          { path: "assignedTo", select: "name email profileImageUrl" },
+          { path: "assignedBy", select: "name email profileImageUrl" },
         ]);
     } else {
       tasks = await Task.find({ ...filter, assignedTo: req.user._id })
-        // .sort(sortOptions)
+        .sort(sortOptions)
         .populate([
-          {
-            path: "assignedTo",
-            select: "name email profileImageUrl",
-          },
-          {
-            path: "assignedBy",
-            select: "name email profileImageUrl",
-          },
+          { path: "assignedTo", select: "name email profileImageUrl" },
+          { path: "assignedBy", select: "name email profileImageUrl" },
         ]);
     }
 
