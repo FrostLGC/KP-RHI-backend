@@ -6,8 +6,17 @@ const roleVerification = {
   // Middleware to check if user has one of the allowed roles
   allowRoles: (allowedRoles) => {
     return (req, res, next) => {
-      if (!req.user || !allowedRoles.includes(req.user.role)) {
-        return res.status(403).json({ message: "Access denied: insufficient role" });
+      if (!req.user) {
+        return res
+          .status(403)
+          .json({ message: "Access denied: insufficient role" });
+      }
+      // Map 'member' role to 'user' for compatibility
+      const userRole = req.user.role === "member" ? "user" : req.user.role;
+      if (!allowedRoles.includes(userRole)) {
+        return res
+          .status(403)
+          .json({ message: "Access denied: insufficient role" });
       }
       next();
     };
@@ -25,7 +34,9 @@ const roleVerification = {
   // Middleware to allow superadmin to update user roles
   superadminOnly: (req, res, next) => {
     if (req.user.role !== "superadmin") {
-      return res.status(403).json({ message: "Access denied: superadmin only" });
+      return res
+        .status(403)
+        .json({ message: "Access denied: superadmin only" });
     }
     next();
   },
@@ -74,30 +85,34 @@ const roleVerification = {
   },
 
   // Middleware to validate admin cannot assign high priority to user who already has high priority task on same date from another admin
-  validateHighPriorityAssignment: async (req, res, next) => {
-    if (req.user.role === "admin" && req.body.priority === "High" && Array.isArray(req.body.assignedTo)) {
-      const dueDate = new Date(req.body.dueDate);
-      for (const assignedUserId of req.body.assignedTo) {
-        const existingHighPriorityTask = await Task.findOne({
-          assignedTo: assignedUserId,
-          priority: "High",
-          dueDate: {
-            $gte: new Date(dueDate.setHours(0, 0, 0, 0)),
-            $lt: new Date(dueDate.setHours(23, 59, 59, 999)),
-          },
-          assignedBy: { $ne: req.user._id },
-        });
-        if (existingHighPriorityTask) {
-          const user = await User.findById(assignedUserId);
-          const userName = user ? user.name : assignedUserId;
-          return res.status(400).json({
-            message: `User ${userName} already has a high priority task on the same date assigned by another admin.`,
-          });
-        }
-      }
-    }
-    next();
-  },
+  // validateHighPriorityAssignment: async (req, res, next) => {
+  //   if (
+  //     req.user.role === "admin" &&
+  //     req.body.priority === "High" &&
+  //     Array.isArray(req.body.assignedTo)
+  //   ) {
+  //     const dueDate = new Date(req.body.dueDate);
+  //     for (const assignedUserId of req.body.assignedTo) {
+  //       const existingHighPriorityTask = await Task.findOne({
+  //         assignedTo: assignedUserId,
+  //         priority: "High",
+  //         dueDate: {
+  //           $gte: new Date(dueDate.setHours(0, 0, 0, 0)),
+  //           $lt: new Date(dueDate.setHours(23, 59, 59, 999)),
+  //         },
+  //         assignedBy: { $ne: req.user._id },
+  //       });
+  //       if (existingHighPriorityTask) {
+  //         const user = await User.findById(assignedUserId);
+  //         const userName = user ? user.name : assignedUserId;
+  //         return res.status(400).json({
+  //           message: `User ${userName} already has a high priority task on the same date assigned by another admin.`,
+  //         });
+  //       }
+  //     }
+  //   }
+  //   next();
+  // },
 };
 
 module.exports = roleVerification;
